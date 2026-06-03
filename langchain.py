@@ -1,4 +1,5 @@
-from langchain_core.runnables import RunnableLambda
+from typing import TypedDict
+from langgraph.graph import StateGraph, END
  
  
 facts = [
@@ -15,10 +16,7 @@ facts = [
 ]
  
 rules = [
-    {
-        "head": ("mortal", "X"),
-        "body": [("man", "X")],
-    },
+    {"head": ("mortal", "X"), "body": [("man", "X")]},
 ]
  
  
@@ -62,18 +60,34 @@ def prove(goal, bindings, trace):
             if success:
                 return True, b
     return False, bindings
- 
-# --- LangChain Chain ---
- 
-def run_query(query):
-    trace = [f"Query: {query}"]
-    result, _ = prove(query, {}, trace)
-    trace.append(f"Result: {'TRUE' if result else 'FALSE'}")
-    return "\n".join(trace)
- 
-chain = RunnableLambda(run_query)
- 
 
+ 
+class State(TypedDict):
+    query: tuple
+    result: bool
+    trace: list
+ 
+def node_retrieve_and_judge(state):
+    relevant = any(f[0] == state["query"][0] for f in facts)
+    if not relevant:
+        state["trace"].append("  [not in facts directly, checking rules...]")
+    return state
+ 
+def node_prove(state):
+    trace = [f"Query: {state['query']}"]
+    result, _ = prove(state["query"], {}, trace)
+    trace.append(f"Result: {'TRUE' if result else 'FALSE'}")
+    print("\n".join(trace))
+    return {**state, "result": result, "trace": trace}
+ 
+graph = StateGraph(State)
+graph.add_node("judge", node_retrieve_and_judge)
+graph.add_node("prove", node_prove)
+graph.set_entry_point("judge")
+graph.add_edge("judge", "prove")
+graph.add_edge("prove", END)
+app = graph.compile()
+ 
  
 queries = [
     ("mortal", "socrates"),
@@ -84,6 +98,5 @@ queries = [
 ]
  
 for q in queries:
-    print(chain.invoke(q))
+    app.invoke({"query": q, "result": False, "trace": []})
     print()
- 
